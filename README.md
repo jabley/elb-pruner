@@ -1,3 +1,5 @@
+![Go](https://github.com/jabley/elb-pruner/workflows/Go/badge.svg?branch=master)
+
 ALBs and NLBs are ~10% cheaper than a classic ELB. If you can use the former instead, you'll probably save money.
 
 But more savings might be available if you can replace many load balancers with a single ALB which does host-based routing to send to the appropriate Auto-Scaling Group.
