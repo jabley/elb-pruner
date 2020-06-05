@@ -535,15 +535,50 @@ func main() {
 
 	recommendations := generateRecommendations(elbs, sgs)
 
+	currentElbCount, albCount, nlbCount, elbCount := 0, 0, 0, 0
 	for _, r := range recommendations {
 		fmt.Printf("The subnets \"%s\" could contain the following load balancer(s):\n", strings.Join(r.Subnets(), ", "))
+
+		sum := count(r.ALBs())
+		currentElbCount += sum.elbs
+		albCount += sum.lbs
 		printRecommendationFor(r.ALBs(), "ALB")
 		println()
+
+		sum = count(r.NLBs())
+		currentElbCount += sum.elbs
+		nlbCount += sum.lbs
 		printRecommendationFor(r.NLBs(), "NLB")
 		println()
+
+		sum = count(r.ELBs())
+		currentElbCount += sum.elbs
+		elbCount += sum.lbs
 		printRecommendationFor(r.ELBs(), "ELB")
 		println()
 	}
+
+	fmt.Printf("So %d ELBs would become %d ALBs, %d NLBs and %d ELBs\n"+
+		"with a potential saving of %0.0f%%\n", currentElbCount, albCount, nlbCount, elbCount,
+		saving(currentElbCount, albCount, nlbCount, elbCount))
+}
+
+type sum struct {
+	elbs, lbs int
+}
+
+func count(lbs []*LB) *sum {
+	res := &sum{
+		lbs: len(lbs),
+	}
+	for i := range lbs {
+		res.elbs += len(lbs[i].ELBs())
+	}
+	return res
+}
+
+func saving(current, alb, nlb, elb int) float64 {
+	return (float64(current) - ((float64(alb)+float64(nlb))*0.9 + float64(elb))) / float64(current) * 100
 }
 
 func printRecommendationFor(lbs []*LB, lbType string) {
