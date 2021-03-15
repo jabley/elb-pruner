@@ -44,7 +44,7 @@ go build
 
 ### Testing
 
-![Build Status](https://github.com/jabley/elb-pruner/workflows/CICD/badge.svg)
+![Build Status](https://github.com/jabley/elb-pruner/workflows/Go/badge.svg)
 [![Test Coverage](https://api.codeclimate.com/v1/badges/ef94fb20a58946c009df/test_coverage)](https://codeclimate.com/github/jabley/elb-pruner/test_coverage)
 
 ```bash
