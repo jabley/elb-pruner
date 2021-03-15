@@ -654,6 +654,176 @@ func TestELBDoingDifferentProtocolsIsRetained(t *testing.T) {
 	assert.Equal(t, []string{"sg-1"}, lb.SecurityGroups())
 }
 
+func TestELBsWithMultipleProtocolsButWithoutPortCollisionsAreConsolidated(t *testing.T) {
+	// None of the ELBs are listening on the same port, so we can replace 2 ELBs with 1. We don't try to find disjoint
+	//sets across all of the supplied ELBs
+	elbs := []*elb.LoadBalancerDescription{
+		createELB("first").
+			withSubnets("a").
+			withListenerDescriptions(
+				listenerDescription{port: 10201, protocol: "TCP"},
+				listenerDescription{port: 80, protocol: "HTTP"},
+			).
+			withSecurityGroups("sg-1").
+			build(),
+		createELB("second").withSubnets("a").
+			withListenerDescriptions(
+				listenerDescription{port: 10202, protocol: "TCP"},
+				listenerDescription{port: 443, protocol: "HTTPS"},
+			).
+			withSecurityGroups("sg-1").
+			build(),
+	}
+
+	sgs := make(map[string]*ec2.SecurityGroup)
+	sgs["sg-1"] = &ec2.SecurityGroup{
+		GroupId: sPtr("sg-1"),
+		IpPermissions: []*ec2.IpPermission{
+			{
+				FromPort:   int64Ptr(10201),
+				IpProtocol: sPtr("tcp"),
+				IpRanges: []*ec2.IpRange{
+					{
+						CidrIp: sPtr("10.0.0.0/8"),
+					},
+				},
+			},
+			{
+				FromPort:   int64Ptr(10202),
+				IpProtocol: sPtr("tcp"),
+				IpRanges: []*ec2.IpRange{
+					{
+						CidrIp: sPtr("10.0.0.0/8"),
+					},
+				},
+			},
+			{
+				FromPort:   int64Ptr(80),
+				IpProtocol: sPtr("tcp"),
+				IpRanges: []*ec2.IpRange{
+					{
+						CidrIp: sPtr("10.0.0.0/8"),
+					},
+				},
+			},
+			{
+				FromPort:   int64Ptr(443),
+				IpProtocol: sPtr("tcp"),
+				IpRanges: []*ec2.IpRange{
+					{
+						CidrIp: sPtr("10.0.0.0/8"),
+					},
+				},
+			},
+		},
+	}
+
+	recommendations := generateRecommendations(elbs, sgs)
+
+	assert.Equal(t, 1, len(recommendations))
+
+	answer := recommendations[0]
+	assert.Equal(t, 1, len(answer.Subnets()), "Subnets")
+	assert.Equal(t, 0, len(answer.ALBs()), "ALBs")
+	assert.Equal(t, 0, len(answer.NLBs()), "NLBs")
+	assert.Equal(t, 1, len(answer.ELBs()), "ELBs")
+
+	lb := answer.ELBs()[0]
+	assert.Equal(t, 2, len(lb.ELBs()), "ELBs")
+	assert.Equal(t, "first", lb.ELBs()[0])
+	assert.Equal(t, "second", lb.ELBs()[1])
+	assert.Equal(t, []string{"80", "443", "10201", "10202"}, lb.Ports())
+	assert.Equal(t, []string{"sg-1"}, lb.SecurityGroups())
+}
+
+func TestELBsWithCollidingPortsCannotBeConsolidated(t *testing.T) {
+	// Both of the ELBs are running something on port 443, so we can't consolidate them
+	elbs := []*elb.LoadBalancerDescription{
+		createELB("first").
+			withSubnets("a").
+			withSecurityGroups("sg-1").
+			withListenerDescriptions(
+				listenerDescription{port: 10201, protocol: "TCP"},
+				listenerDescription{port: 443, protocol: "HTTPS"},
+				listenerDescription{port: 80, protocol: "HTTP"},
+			).
+			withSecurityGroups("sg-1").
+			build(),
+		createELB("second").withSubnets("a").
+			withSecurityGroups("sg-1").
+			withListenerDescriptions(
+				listenerDescription{port: 10202, protocol: "TCP"},
+				listenerDescription{port: 443, protocol: "HTTPS"},
+			).
+			build(),
+	}
+
+	sgs := make(map[string]*ec2.SecurityGroup)
+	sgs["sg-1"] = &ec2.SecurityGroup{
+		GroupId: sPtr("sg-1"),
+		IpPermissions: []*ec2.IpPermission{
+			{
+				FromPort:   int64Ptr(10201),
+				IpProtocol: sPtr("tcp"),
+				IpRanges: []*ec2.IpRange{
+					{
+						CidrIp: sPtr("10.0.0.0/8"),
+					},
+				},
+			},
+			{
+				FromPort:   int64Ptr(10202),
+				IpProtocol: sPtr("tcp"),
+				IpRanges: []*ec2.IpRange{
+					{
+						CidrIp: sPtr("10.0.0.0/8"),
+					},
+				},
+			},
+			{
+				FromPort:   int64Ptr(80),
+				IpProtocol: sPtr("tcp"),
+				IpRanges: []*ec2.IpRange{
+					{
+						CidrIp: sPtr("10.0.0.0/8"),
+					},
+				},
+			},
+			{
+				FromPort:   int64Ptr(443),
+				IpProtocol: sPtr("tcp"),
+				IpRanges: []*ec2.IpRange{
+					{
+						CidrIp: sPtr("10.0.0.0/8"),
+					},
+				},
+			},
+		},
+	}
+
+	recommendations := generateRecommendations(elbs, sgs)
+
+	assert.Equal(t, 1, len(recommendations))
+
+	answer := recommendations[0]
+	assert.Equal(t, 1, len(answer.Subnets()), "Subnets")
+	assert.Equal(t, 0, len(answer.ALBs()), "ALBs")
+	assert.Equal(t, 0, len(answer.NLBs()), "NLBs")
+	assert.Equal(t, 2, len(answer.ELBs()), "ELBs")
+
+	first := answer.ELBs()[0]
+	assert.Equal(t, 1, len(first.ELBs()), "ELBs")
+	assert.Equal(t, "first", first.ELBs()[0])
+	assert.Equal(t, []string{"80", "443", "10201"}, first.Ports())
+	assert.Equal(t, []string{"sg-1"}, first.SecurityGroups())
+
+	second := answer.ELBs()[1]
+	assert.Equal(t, 1, len(second.ELBs()), "ELBs")
+	assert.Equal(t, "second", second.ELBs()[0])
+	assert.Equal(t, []string{"443", "10202"}, second.Ports())
+	assert.Equal(t, []string{"sg-1"}, second.SecurityGroups())
+}
+
 func TestTCPOverPort80IsTreatedAsHTTP(t *testing.T) {
 	lb := createELB("first").
 		withSubnets("a").
