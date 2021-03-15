@@ -331,6 +331,91 @@ func generateRecommendations(elbs []*elb.LoadBalancerDescription, sgs map[string
 	return tiers.recommendations()
 }
 
+// elbReplacementStrategy captures the distinctions between replacing with an ALB, replacing with an NLB, or trying to
+// consolidate ELBs into a single ELB.
+type elbReplacementStrategy interface {
+	add(lb *LB)
+	associate(lb *LB, securityGroups []*string)
+	isFirstOfThisType() bool
+	loadBalancersBySecurityGroup() map[string]*LB
+	supportsPortCollisions() bool
+}
+
+type replaceWithALB struct {
+	recommendation *recommendation
+}
+
+func (r *replaceWithALB) add(alb *LB) {
+	r.recommendation.albs = append(r.recommendation.albs, alb)
+}
+
+func (r *replaceWithALB) associate(alb *LB, securityGroups []*string) {
+	r.recommendation.associateALBWithSecurityGroups(alb, securityGroups)
+}
+
+func (r *replaceWithALB) isFirstOfThisType() bool {
+	return len(r.recommendation.albs) == 0
+}
+
+func (r *replaceWithALB) loadBalancersBySecurityGroup() map[string]*LB {
+	return r.recommendation.albsBySg
+}
+
+func (r *replaceWithALB) supportsPortCollisions() bool {
+	// ALBs can do port collisions - we can do host-based routing to select a backend
+	return true
+}
+
+type replaceWithNLB struct {
+	recommendation *recommendation
+}
+
+func (r *replaceWithNLB) add(nlb *LB) {
+	r.recommendation.nlbs = append(r.recommendation.nlbs, nlb)
+}
+
+func (r *replaceWithNLB) associate(nlb *LB, securityGroups []*string) {
+	r.recommendation.associateNLBWithSecurityGroups(nlb, securityGroups)
+}
+
+func (r *replaceWithNLB) isFirstOfThisType() bool {
+	return len(r.recommendation.nlbs) == 0
+}
+
+func (r *replaceWithNLB) loadBalancersBySecurityGroup() map[string]*LB {
+	return r.recommendation.nlbsBySg
+}
+
+func (r *replaceWithNLB) supportsPortCollisions() bool {
+	// NLBs can't do port collisions - no routing options to decide on a backend?
+	return false
+}
+
+type consolidateELBs struct {
+	recommendation *recommendation
+}
+
+func (r *consolidateELBs) add(elb *LB) {
+	r.recommendation.elbs = append(r.recommendation.elbs, elb)
+}
+
+func (r *consolidateELBs) associate(nlb *LB, securityGroups []*string) {
+	r.recommendation.associateELBWithSecurityGroups(nlb, securityGroups)
+}
+
+func (r *consolidateELBs) isFirstOfThisType() bool {
+	return len(r.recommendation.elbs) == 0
+}
+
+func (r *consolidateELBs) loadBalancersBySecurityGroup() map[string]*LB {
+	return r.recommendation.elbsBySg
+}
+
+func (r *consolidateELBs) supportsPortCollisions() bool {
+	// ELBs can't do port collisions - no routing options to decide on a backend?
+	return false
+}
+
 // elbDrop is modelled after a penny fall machine that you might see at an arcade.
 //
 // 1. The first level assesses which subnets the ELB is in.
@@ -342,80 +427,43 @@ func elbDrop(tiers *tiers, lb *elb.LoadBalancerDescription) {
 	targetLB := inspectListeners(lb)
 	switch targetLB {
 	case ALB:
-		addELBv2(lb, tiers,
-			len(recommendation.albs) == 0,
-			true, // ALBs can do port collisions - we can do host-based routing to select a backend
-			func(alb *LB) {
-				recommendation.albs = append(recommendation.albs, alb)
-			},
-			func(alb *LB, securityGroups []*string) {
-				recommendation.associateALBWithSecurityGroups(alb, securityGroups)
-			},
-			recommendation.albsBySg,
-		)
+		addELBv2(lb, tiers, &replaceWithALB{recommendation})
 	case NLB:
-		addELBv2(lb, tiers,
-			len(recommendation.nlbs) == 0,
-			false, // NLBs can't do port collisions - no routing options to decide on a backend?
-			func(nlb *LB) {
-				recommendation.nlbs = append(recommendation.nlbs, nlb)
-			}, func(nlb *LB, securityGroups []*string) {
-				recommendation.associateNLBWithSecurityGroups(nlb, securityGroups)
-			},
-			recommendation.nlbsBySg,
-		)
+		addELBv2(lb, tiers, &replaceWithNLB{recommendation})
 	case ELB:
-		addELBv2(lb, tiers,
-			len(recommendation.elbs) == 0,
-			false, // ELBs can't do port collisions - no routing options to decide on a backend?
-			func(elb *LB) {
-				recommendation.elbs = append(recommendation.elbs, elb)
-			},
-			func(elb *LB, securityGroups []*string) {
-				recommendation.associateELBWithSecurityGroups(elb, securityGroups)
-			},
-			recommendation.elbsBySg,
-		)
+		addELBv2(lb, tiers, &consolidateELBs{recommendation})
 	default:
 		panic("Uknown type of LB")
 	}
 }
 
-func addELBv2(
-	lb *elb.LoadBalancerDescription,
-	tiers *tiers,
-	firstELBv2 bool,
-	allowPortCollisions bool,
-	add func(*LB),
-	associate func(*LB, []*string),
-	existingELBv2sBySg map[string]*LB,
-) {
+func addELBv2(lb *elb.LoadBalancerDescription, tiers *tiers, replacementStrategy elbReplacementStrategy) {
 
-	if firstELBv2 {
-		elbv2 := newLB(lb)
+	if replacementStrategy.isFirstOfThisType() {
+		res := newLB(lb)
 
-		add(elbv2)
-		associate(elbv2, lb.SecurityGroups)
+		replacementStrategy.add(res)
+		replacementStrategy.associate(res, lb.SecurityGroups)
 
 		return
 	}
 
 	for _, lbSecurityGroup := range lb.SecurityGroups {
 		// do we have an existing one with this security group?
-		elbv2, ok := existingELBv2sBySg[*lbSecurityGroup]
-		if ok && (allowPortCollisions || !elbv2.hasPortCollision(lb)) {
-			associate(elbv2, lb.SecurityGroups)
+		elbv2, ok := replacementStrategy.loadBalancersBySecurityGroup()[*lbSecurityGroup]
+		if ok && (replacementStrategy.supportsPortCollisions() || !elbv2.hasPortCollision(lb)) {
+			replacementStrategy.associate(elbv2, lb.SecurityGroups)
 			elbv2.replaceELB(lb)
 			return
 		}
 
 		// Have we already processed an SG which has the same ingress?
-		for seenSg := range existingELBv2sBySg {
+		for seenSg := range replacementStrategy.loadBalancersBySecurityGroup() {
 			if tiers.hasSameIngress(seenSg, *lbSecurityGroup) {
-				elbv2 := existingELBv2sBySg[seenSg]
-				if allowPortCollisions || !elbv2.hasPortCollision(lb) {
-					associate(elbv2, lb.SecurityGroups)
-					elbv2.replaceELB(lb)
+				existing := replacementStrategy.loadBalancersBySecurityGroup()[seenSg]
+				if replacementStrategy.supportsPortCollisions() || !existing.hasPortCollision(lb) {
+					replacementStrategy.associate(existing, lb.SecurityGroups)
+					existing.replaceELB(lb)
 					return
 				}
 			}
@@ -423,9 +471,9 @@ func addELBv2(
 	}
 
 	// Distinctly new SecurityGroup – a new ELBv2 then
-	elbv2 := newLB(lb)
-	add(elbv2)
-	associate(elbv2, lb.SecurityGroups)
+	res := newLB(lb)
+	replacementStrategy.add(res)
+	replacementStrategy.associate(res, lb.SecurityGroups)
 }
 
 func inspectListeners(lb *elb.LoadBalancerDescription) lbType {
