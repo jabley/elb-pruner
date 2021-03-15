@@ -541,10 +541,12 @@ func main() {
 	input := &elb.DescribeLoadBalancersInput{}
 	elbs := make([]*elb.LoadBalancerDescription, 0)
 
-	elbSvc.DescribeLoadBalancersPages(input, func(page *elb.DescribeLoadBalancersOutput, lastPage bool) bool {
+	err := elbSvc.DescribeLoadBalancersPages(input, func(page *elb.DescribeLoadBalancersOutput, lastPage bool) bool {
 		elbs = append(elbs, page.LoadBalancerDescriptions...)
 		return !lastPage
 	})
+
+	panicOnAwsError(err)
 
 	sgs := make(map[string]*ec2.SecurityGroup)
 
