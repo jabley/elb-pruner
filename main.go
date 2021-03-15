@@ -58,7 +58,7 @@ func (t *tier) keys() []string {
 		i++
 	}
 
-	sort.Sort(sort.StringSlice(keys))
+	sort.Strings(keys)
 
 	return keys
 }
@@ -138,7 +138,7 @@ func (t *tiers) recommendations() []recommendation {
 
 	// TODO(jabley): this is little messy – fix data structures!
 	for _, tier := range t.tiers {
-		*&tier.recommendation.subnets = tier.keys()
+		tier.recommendation.subnets = tier.keys()
 		result = append(result, *tier.recommendation)
 	}
 
@@ -277,7 +277,7 @@ func (lb *LB) Ports() []string {
 	}
 
 	// We sort the ports in ascending order, because that seems like a reasonable expectation
-	sort.Sort(sort.IntSlice(res))
+	sort.Ints(res)
 
 	buf := make([]string, len(res))
 	for i := range res {
@@ -295,7 +295,7 @@ func (lb *LB) SecurityGroups() []string {
 	}
 
 	// We sort the security group names because that seems like a reasonable expectation
-	sort.Sort(sort.StringSlice(res))
+	sort.Strings(res)
 
 	return res
 }
@@ -424,7 +424,7 @@ func addELBv2(
 		// Have we already processed an SG which has the same ingress?
 		for seenSg := range existingELBv2sBySg {
 			if tiers.hasSameIngress(seenSg, *lbSecurityGroup) {
-				elbv2, _ := existingELBv2sBySg[seenSg]
+				elbv2 := existingELBv2sBySg[seenSg]
 				if allowPortCollisions || !elbv2.hasPortCollision(lb) {
 					associate(elbv2, lb.SecurityGroups)
 					elbv2.replaceELB(lb)
