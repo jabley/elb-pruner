@@ -399,8 +399,8 @@ func (r *consolidateELBs) add(elb *LB) {
 	r.recommendation.elbs = append(r.recommendation.elbs, elb)
 }
 
-func (r *consolidateELBs) associate(nlb *LB, securityGroups []*string) {
-	r.recommendation.associateELBWithSecurityGroups(nlb, securityGroups)
+func (r *consolidateELBs) associate(elb *LB, securityGroups []*string) {
+	r.recommendation.associateELBWithSecurityGroups(elb, securityGroups)
 }
 
 func (r *consolidateELBs) isFirstOfThisType() bool {
