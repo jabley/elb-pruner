@@ -653,3 +653,33 @@ func TestELBDoingDifferentProtocolsIsRetained(t *testing.T) {
 	assert.Equal(t, []string{"80", "443", "11210"}, lb.Ports())
 	assert.Equal(t, []string{"sg-1"}, lb.SecurityGroups())
 }
+
+func TestTCPOverPort80IsTreatedAsHTTP(t *testing.T) {
+	lb := createELB("first").
+		withSubnets("a").
+		withListenerDescriptions(
+			listenerDescription{port: 80, protocol: "TCP"},
+		).
+		build()
+	assert.Equal(t, ALB, inspectListeners(lb))
+}
+
+func TestTCPOverPort443IsTreatedAsHTTPS(t *testing.T) {
+	lb := createELB("first").
+		withSubnets("a").
+		withListenerDescriptions(
+			listenerDescription{port: 443, protocol: "TCP"},
+		).
+		build()
+	assert.Equal(t, ALB, inspectListeners(lb))
+}
+
+func TestTCPOverPort8080IsTreatedAsTCP(t *testing.T) {
+	lb := createELB("first").
+		withSubnets("a").
+		withListenerDescriptions(
+			listenerDescription{port: 8080, protocol: "TCP"},
+		).
+		build()
+	assert.Equal(t, NLB, inspectListeners(lb))
+}
