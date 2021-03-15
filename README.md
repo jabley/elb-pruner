@@ -27,3 +27,30 @@ I've used this to evaluate changes which meant an 80% reduction in deployed ELBs
 ## Limitations
 
 * Untested with different VPCs – I tend to have a single VPC in an account. It might still work, because presumably the subnet names are different across VPCs?
+
+## Development
+
+[![Go Report Card](https://goreportcard.com/badge/github.com/jabley/elb-pruner)][goreportcard]
+[![Maintainability](https://api.codeclimate.com/v1/badges/ef94fb20a58946c009df/maintainability)][codeclimate]
+
+[goreportcard]: https://goreportcard.com/report/github.com/jabley/elb-pruner
+[codeclimate]: https://codeclimate.com/github/jabley/elb-pruner/maintainability
+
+### Building
+
+```bash
+go build
+```
+
+### Testing
+
+![Build Status](https://github.com/jabley/elb-pruner/workflows/CICD/badge.svg)
+[![Test Coverage](https://api.codeclimate.com/v1/badges/ef94fb20a58946c009df/test_coverage)](https://codeclimate.com/github/jabley/elb-pruner/test_coverage)
+
+```bash
+go test ./...
+```
+
+The test coverage number is interesting. Since this is (for now) a small application, it flags that
+all the `func main()` bit which parses command line args isn't tested. But if you look at the report,
+all of the application logic has good coverage.
