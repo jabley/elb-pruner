@@ -342,55 +342,43 @@ func elbDrop(tiers *tiers, lb *elb.LoadBalancerDescription) {
 	targetLB := inspectListeners(lb)
 	switch targetLB {
 	case ALB:
-		addALB(recommendation, lb, tiers)
+		addELBv2(lb, tiers,
+			len(recommendation.albs) == 0,
+			true, // ALBs can do port collisions - we can do host-based routing to select a backend
+			func(alb *LB) {
+				recommendation.albs = append(recommendation.albs, alb)
+			},
+			func(alb *LB, securityGroups []*string) {
+				recommendation.associateALBWithSecurityGroups(alb, securityGroups)
+			},
+			recommendation.albsBySg,
+		)
 	case NLB:
-		addNLB(recommendation, lb, tiers)
+		addELBv2(lb, tiers,
+			len(recommendation.nlbs) == 0,
+			false, // NLBs can't do port collisions - no routing options to decide on a backend?
+			func(nlb *LB) {
+				recommendation.nlbs = append(recommendation.nlbs, nlb)
+			}, func(nlb *LB, securityGroups []*string) {
+				recommendation.associateNLBWithSecurityGroups(nlb, securityGroups)
+			},
+			recommendation.nlbsBySg,
+		)
 	case ELB:
-		addELB(recommendation, lb, tiers)
+		addELBv2(lb, tiers,
+			len(recommendation.elbs) == 0,
+			false, // ELBs can't do port collisions - no routing options to decide on a backend?
+			func(elb *LB) {
+				recommendation.elbs = append(recommendation.elbs, elb)
+			},
+			func(elb *LB, securityGroups []*string) {
+				recommendation.associateELBWithSecurityGroups(elb, securityGroups)
+			},
+			recommendation.elbsBySg,
+		)
 	default:
 		panic("Uknown type of LB")
 	}
-}
-
-func addALB(recommendation *recommendation, lb *elb.LoadBalancerDescription, tiers *tiers) {
-	addELBv2(lb, tiers,
-		len(recommendation.albs) == 0,
-		true, // ALBs can do port collisions - we can do host-based routing to select a backend
-		func(alb *LB) {
-			recommendation.albs = append(recommendation.albs, alb)
-		},
-		func(alb *LB, securityGroups []*string) {
-			recommendation.associateALBWithSecurityGroups(alb, securityGroups)
-		},
-		recommendation.albsBySg,
-	)
-}
-
-func addNLB(recommendation *recommendation, lb *elb.LoadBalancerDescription, tiers *tiers) {
-	addELBv2(lb, tiers,
-		len(recommendation.nlbs) == 0,
-		false, // NLBs can't do port collisions - no routing options to decide on a backend?
-		func(nlb *LB) {
-			recommendation.nlbs = append(recommendation.nlbs, nlb)
-		}, func(nlb *LB, securityGroups []*string) {
-			recommendation.associateNLBWithSecurityGroups(nlb, securityGroups)
-		},
-		recommendation.nlbsBySg,
-	)
-}
-
-func addELB(recommendation *recommendation, lb *elb.LoadBalancerDescription, tiers *tiers) {
-	addELBv2(lb, tiers,
-		len(recommendation.elbs) == 0,
-		false, // ELBs can't do port collisions - no routing options to decide on a backend?
-		func(elb *LB) {
-			recommendation.elbs = append(recommendation.elbs, elb)
-		},
-		func(elb *LB, securityGroups []*string) {
-			recommendation.associateELBWithSecurityGroups(elb, securityGroups)
-		},
-		recommendation.elbsBySg,
-	)
 }
 
 func addELBv2(
@@ -535,6 +523,10 @@ func main() {
 
 	recommendations := generateRecommendations(elbs, sgs)
 
+	printRecommendations(recommendations)
+}
+
+func printRecommendations(recommendations []recommendation) {
 	currentElbCount, albCount, nlbCount, elbCount := 0, 0, 0, 0
 	for _, r := range recommendations {
 		fmt.Printf("The subnets \"%s\" could contain the following load balancer(s):\n", strings.Join(r.Subnets(), ", "))
