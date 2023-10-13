@@ -3,7 +3,7 @@ module github.com/jabley/elb-pruner
 go 1.20
 
 require (
-	github.com/aws/aws-sdk-go v1.44.219
+	github.com/aws/aws-sdk-go v1.45.25
 	github.com/stretchr/testify v1.7.0
 )
 
