@@ -1,4 +1,4 @@
-![Go](https://github.com/jabley/elb-pruner/workflows/Go/badge.svg?branch=master)
+![Go](https://github.com/jabley/elb-pruner/workflows/Go/badge.svg?branch=main)
 
 ALBs and NLBs are ~10% cheaper than a classic ELB. If you can use the former instead, you'll probably save money.
 
