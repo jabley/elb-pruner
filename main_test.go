@@ -52,7 +52,7 @@ func (b *elbBuilder) withSubnets(subnets ...string) *elbBuilder {
 }
 
 func (b *elbBuilder) build() *elb.LoadBalancerDescription {
-	if b.subnets == nil || len(b.subnets) == 0 {
+	if len(b.subnets) == 0 {
 		panic("ELB must have at least one subnet")
 	}
 
